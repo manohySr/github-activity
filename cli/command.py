@@ -1,5 +1,5 @@
 import typer
-from .core import GithubActivityService
+from .core import GithubActivityService, GithubActivityError
 
 
 class GithubActivity:
@@ -19,9 +19,12 @@ class GithubActivity:
             username: str = typer.Argument(..., help="GitHub username"),
         ):
             """Get activity for a specific GitHub user."""
-            activities = self.service.get_user_activity(username)
-            typer.echo(f"Activity for {username}")
-            self.service.display_activity(activities, f"Activity for {username}")
+            try:
+                activities = self.service.get_user_activity(username)
+                self.service.display_activity(activities, username)
+            except GithubActivityError as e:
+                typer.echo(f"\tError: {str(e)}")
+                typer.Exit(code=1)
 
     def run(self):
         self.app()
