@@ -1,16 +1,82 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
 import requests
 from requests.exceptions import RequestException
 import typer
 from rich.console import Console
+
 
 class GithubActivityError(Exception):
     """Custom exception for GitHub activity errors."""
     pass
 
 
+class EventFormatter:
+    """Helper class to format different types of GitHub events."""
+    
+    @staticmethod
+    def format_push_event(event: Dict) -> str:
+        commit_count = event.get("payload", {}).get("size", 0)
+        repo_name = event.get("repo", {}).get("name")
+        return f"- Pushed [bold blue]{commit_count} commits[/bold blue] to [bold magenta]{repo_name}[/bold magenta]"
+
+    @staticmethod
+    def format_create_event(event: Dict) -> str:
+        ref_type = event.get("payload", {}).get("ref_type")
+        ref = event.get("payload", {}).get("ref")
+        repo_name = event.get("repo", {}).get("name")
+        
+        if ref_type == "repository":
+            return f"- Created a new [bold cyan]repository[/bold cyan]: [bold magenta]{repo_name}[/bold magenta]"
+        elif ref_type in ["branch", "tag"]:
+            return f"- Created {ref_type} [bold yellow]{ref}[/bold yellow] in [bold magenta]{repo_name}[/bold magenta]"
+        return ""
+
+    @staticmethod
+    def format_issue_event(event: Dict) -> str:
+        action = event.get("payload", {}).get("action")
+        issue = event.get("payload", {}).get("issue", {})
+        repo_name = event.get("repo", {}).get("name")
+        return f"- {action.capitalize()} issue [bold green]#{issue.get('number')}[/bold green]: '{issue.get('title')}' in [bold magenta]{repo_name}[/bold magenta]"
+
+    @staticmethod
+    def format_pr_event(event: Dict) -> str:
+        action = event.get("payload", {}).get("action")
+        pr = event.get("payload", {}).get("pull_request", {})
+        repo_name = event.get("repo", {}).get("name")
+        return f"- {action.capitalize()} pull request [bold purple]#{event.get('payload', {}).get('number')}[/bold purple]: '{pr.get('title')}' in [bold magenta]{repo_name}[/bold magenta]"
+
+    @staticmethod
+    def format_fork_event(event: Dict) -> str:
+        repo_name = event.get("repo", {}).get("name")
+        forkee_name = event.get("payload", {}).get("forkee", {}).get("full_name")
+        return f"- Forked [bold magenta]{repo_name}[/bold magenta] to [bold cyan]{forkee_name}[/bold cyan]"
+
+    @staticmethod
+    def format_watch_event(event: Dict) -> str:
+        action = event.get("payload", {}).get("action")
+        repo_name = event.get("repo", {}).get("name")
+        return f"- {action.capitalize()} watching [bold magenta]{repo_name}[/bold magenta]"
+
+    @staticmethod
+    def format_release_event(event: Dict) -> str:
+        action = event.get("payload", {}).get("action")
+        release_name = event.get("payload", {}).get("release", {}).get("name")
+        repo_name = event.get("repo", {}).get("name")
+        return f"- {action.capitalize()} release [bold yellow]'{release_name}'[/bold yellow] in [bold magenta]{repo_name}[/bold magenta]"
+
+
 class GithubActivityService:
     """Service class for handling GitHub activity operations."""
+    
+    EVENT_FORMATTERS = {
+        "PushEvent": EventFormatter.format_push_event,
+        "CreateEvent": EventFormatter.format_create_event,
+        "IssuesEvent": EventFormatter.format_issue_event,
+        "PullRequestEvent": EventFormatter.format_pr_event,
+        "ForkEvent": EventFormatter.format_fork_event,
+        "WatchEvent": EventFormatter.format_watch_event,
+        "ReleaseEvent": EventFormatter.format_release_event,
+    }
     
     def __init__(self) -> None:
         """Initialize the GitHub activity service"""
@@ -46,66 +112,25 @@ class GithubActivityService:
             raise GithubActivityError(f"Error fetching GitHub data: {str(e)}")
         
     def display_activity(self, activities: List[Dict], username: str) -> None:
-        """Display activity data in a formatted table.
+        """Display activity data in a formatted way.
         
         Args:
             activities (List[Dict]): List of activity events
             username (str): User name
         """
-
         self.console.print(f"\n[bold green]{username}'s recent GitHub Activity:[/bold green]\n")
 
         for event in activities:
             event_type = event.get("type")
-            repo_name = event.get("repo", {}).get("name")
-            actor_login = event.get("actor", {}).get("login")
-
-            output_line = ""
-
-            match event_type:
-                case "PushEvent":
-                    commit_count = event.get("payload", {}).get("size", 0)
-                    output_line = f"- Pushed [bold blue]{commit_count} commits[/bold blue] to [bold magenta]{repo_name}[/bold magenta]"
-                case "CreateEvent":
-                    ref_type = event.get("payload", {}).get("ref_type")
-                    ref = event.get("payload", {}).get("ref")
-                    if ref_type == "repository":
-                        output_line = f"- Created a new [bold cyan]repository[/bold cyan]: [bold magenta]{repo_name}[/bold magenta]"
-                    elif ref_type == "branch":
-                        output_line = f"- Created branch [bold yellow]{ref}[/bold yellow] in [bold magenta]{repo_name}[/bold magenta]"
-                    elif ref_type == "tag":
-                        output_line = f"- Created tag [bold yellow]{ref}[/bold yellow] in [bold magenta]{repo_name}[/bold magenta]"
-                case "IssuesEvent":
-                    action = event.get("payload", {}).get("action")
-                    issue_title = event.get("payload", {}).get("issue", {}).get("title")
-                    issue_number = event.get("payload", {}).get("issue", {}).get("number")
-                    output_line = f"- {action.capitalize()} issue [bold green]#{issue_number}[/bold green]: '{issue_title}' in [bold magenta]{repo_name}[/bold magenta]"
-                case "IssueCommentEvent":
-                    action = event.get("payload", {}).get("action")
-                    issue_title = event.get("payload", {}).get("issue", {}).get("title")
-                    issue_number = event.get("payload", {}).get("issue", {}).get("number")
-                    output_line = f"- {action.capitalize()} a comment on issue [bold green]#{issue_number}[/bold green]: '{issue_title}' in [bold magenta]{repo_name}[/bold magenta]"
-                case "PullRequestEvent":
-                    action = event.get("payload", {}).get("action")
-                    pr_title = event.get("payload", {}).get("pull_request", {}).get("title")
-                    pr_number = event.get("payload", {}).get("number")
-                    output_line = f"- {action.capitalize()} pull request [bold purple]#{pr_number}[/bold purple]: '{pr_title}' in [bold magenta]{repo_name}[/bold magenta]"
-                case "ForkEvent":
-                    forkee_name = event.get("payload", {}).get("forkee", {}).get("full_name")
-                    output_line = f"- Forked [bold magenta]{repo_name}[/bold magenta] to [bold cyan]{forkee_name}[/bold cyan]"
-                case "WatchEvent":
-                    action = event.get("payload", {}).get("action")
-                    output_line = f"- {action.capitalize()} watching [bold magenta]{repo_name}[/bold magenta]"
-                case "ReleaseEvent":
-                    action = event.get("payload", {}).get("action")
-                    release_name = event.get("payload", {}).get("release", {}).get("name")
-                    output_line = f"- {action.capitalize()} release [bold yellow]'{release_name}'[/bold yellow] in [bold magenta]{repo_name}[/bold magenta]"
-                case _:
-                    # Fallback for unhandled event types
-                    if repo_name:
-                        output_line = f"- Performed a [bold white]{event_type}[/bold white] in [bold magenta]{repo_name}[/bold magenta]"
-                    else:
-                        output_line = f"- Performed a [bold white]{event_type}[/bold white]"
+            formatter = self.EVENT_FORMATTERS.get(event_type)
+            
+            if formatter:
+                output_line = formatter(event)
+            else:
+                repo_name = event.get("repo", {}).get("name")
+                output_line = f"- Performed a [bold white]{event_type}[/bold white]" + (
+                    f" in [bold magenta]{repo_name}[/bold magenta]" if repo_name else ""
+                )
 
             if output_line:
                 self.console.print(f"  {output_line}")
