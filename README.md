@@ -2,6 +2,9 @@
 
 A command-line tool to track and analyze GitHub activity. This project is based on the [GitHub User Activity project](https://roadmap.sh/projects/github-user-activity) from roadmap.sh.
 
+![image](https://github.com/user-attachments/assets/2347d199-c181-4ea7-94de-5b933a9a45cc)
+
+
 ## Features
 
 - Fetch recent GitHub activity for any user
